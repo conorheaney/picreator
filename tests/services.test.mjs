@@ -28,13 +28,13 @@ test('service accounts cannot satisfy the SSH login check or gain sudo', () => {
 });
 test('service accounts export with locked passwords, nologin and explicit SSH denial', () => {
   const p = project(); const files = generate(p).files;
-  const hook = files['layer/picreator-project.d/hooks/late/customize99-picreator'].content;
+  const hook = files['layer/my-raspberry-pi-settings.d/hooks/late/customize99-my-raspberry-pi'].content;
   assert.match(hook, /'useradd' '--system' '--user-group' '--no-create-home' '--home-dir' '\/nonexistent' '--shell' '\/usr\/sbin\/nologin' 'myservice'/);
   assert.match(hook, /'usermod' '--lock' 'myservice'/);
-  assert.doesNotMatch(hook, /sudoers.d\/90-picreator-myservice/);
-  const written = [...hook.matchAll(/printf '%s' '([^']+)' \| base64 -d/g)].map(m => Buffer.from(m[1], 'base64').toString());
-  assert.ok(written.some(s => s.includes('DenyUsers myservice\n')));
-  assert.ok(written.some(s => s.includes(p.users[0].sshKeys)));
+  assert.doesNotMatch(hook, /sudoers.d\/90-my-raspberry-pi-myservice/);
+  assert.match(files['layer/my-raspberry-pi-settings.d/customize.overlay/etc/ssh/sshd_config.d/00-my-raspberry-pi-ssh.conf'].content, /DenyUsers myservice/);
+  assert.ok(files['keys/my-raspberry-pi-pi.pub'].content.includes(p.users[0].sshKeys));
+
 });
 test('units have restricted defaults, literal arguments and hardware-dependent devices', () => {
   const p = project(); p.services[0].arguments = '--title\na value with spaces\n$HOME %n "quoted" \\path';
@@ -50,9 +50,9 @@ test('extra data directories are prepared after mounts and manual-only units rem
   const f = generate(p).files;
   assert.match(f['services/myapp.service'].content, /RequiresMountsFor=\/data\/app/);
   assert.match(f['services/myapp.service'].content, /ReadWritePaths=\/data\/app/);
-  assert.match(f['services/picreator-dirs-myapp.service'].content, /systemd-tmpfiles --create/);
-  assert.equal(f['services/picreator-myapp.conf'].content, 'd /data/app 0700 myservice myservice -\n');
-  assert.match(f['layer/picreator-project.d/hooks/late/customize99-picreator'].content, /disable 'myapp.service'/);
+  assert.match(f['services/my-raspberry-pi-prepare-myapp.service'].content, /systemd-tmpfiles --create/);
+  assert.equal(f['services/my-raspberry-pi-myapp-directories.conf'].content, 'd /data/app 0700 myservice myservice -\n');
+  assert.match(f['layer/my-raspberry-pi-settings.d/hooks/late/customize99-my-raspberry-pi'].content, /disable 'myapp.service'/);
 });
 test('missing accounts, path injection, conflicting permissions and unit overwrites block export', () => {
   const invalid = [
@@ -63,7 +63,7 @@ test('missing accounts, path injection, conflicting permissions and unit overwri
     p => p.services[0].writablePaths = '/etc',
     p => p.services[0].writablePaths = '/data/../etc',
     p => p.services[0].stateDirectory = '../../etc',
-    p => p.services[0].name = 'picreator-dirs-evil',
+    p => p.services[0].name = 'my-raspberry-pi-prepare-evil',
     p => p.software.disableServices = 'myapp.service',
     p => p.advanced.files.push({ path: '/etc/systemd/system/myapp.service', content: 'User=root', executable: false }),
     p => { p.serviceAccounts.push({ name: 'another', groups: '' }); p.services.push({ ...p.services[0], name: 'other', account: 'another' }); }

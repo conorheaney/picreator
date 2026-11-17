@@ -59,7 +59,7 @@ export const server = http.createServer(async (req, res) => {
         await mutation(() => write(id, doc));
         return json(res, 201, { id, ...doc });
       }
-      const archiveMatch = route.match(/^\/api\/exports\/([a-z][a-z0-9-]{0,47}-[0-9]+-[a-f0-9]{8})\.tar\.gz$/);
+      const archiveMatch = route.match(/^\/api\/exports\/([a-z][a-z0-9-]{0,47}-(?:[0-9]+-)?[a-f0-9]{8})\.tar\.gz$/);
       if (archiveMatch && req.method === 'GET') {
         const archive = await fs.readFile(path.join(exportRoot, archiveMatch[1] + '.tar.gz')).catch(e => { if (e.code === 'ENOENT') throw Object.assign(new Error('Export not found.'), { status: 404 }); throw e; });
         res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${archiveMatch[1]}.tar.gz"`, 'Content-Length': archive.length, 'Cache-Control': 'no-store' }); return res.end(archive);
@@ -83,9 +83,15 @@ export const server = http.createServer(async (req, res) => {
           const input = await body(req), doc = await read(id);
           if (input.revision !== doc.revision) return json(res, 409, { error: 'Save the latest project before exporting.' });
           const result = generate(doc.config);
-          const folder = `${doc.config.project.slug}-${Date.now()}-${randomUUID().slice(0, 8)}`;
-          const dest = path.join(exportRoot, folder);
-          await fs.mkdir(dest, { recursive: true });
+          // Reserve a fresh directory; retry a short-ID collision without overwriting exports.
+          let folder, dest;
+          await fs.mkdir(exportRoot, { recursive: true });
+          for (;;) {
+            folder = `${doc.config.project.slug}-${randomUUID().slice(0, 8)}`;
+            dest = path.join(exportRoot, folder);
+            try { await fs.mkdir(dest); break; }
+            catch (error) { if (error.code !== 'EEXIST') throw error; }
+          }
           for (const [name, file] of Object.entries(result.files)) {
             const target = path.join(dest, name); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, file.content, { mode: file.mode });
           }

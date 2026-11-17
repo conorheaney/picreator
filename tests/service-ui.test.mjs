@@ -6,7 +6,7 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
   const timers = [];
   globalThis.setTimeout = (...args) => { const timer = originalTimeout(...args); timers.push(timer); return timer; };
   const nodes = new Map(), events = new Map();
-  const node = key => { if (!nodes.has(key)) nodes.set(key, { innerHTML: '', textContent: '', addEventListener() {}, showModal() { this.open = true; }, close() { this.open = false; } }); return nodes.get(key); };
+  const node = key => { if (!nodes.has(key)) nodes.set(key, { dataset: {}, innerHTML: '', textContent: '', addEventListener() {}, showModal() { this.open = true; }, close() { this.open = false; } }); return nodes.get(key); };
   globalThis.document = { querySelector: node, addEventListener: (name, fn) => events.set(name, fn) };
   globalThis.window = { addEventListener() {}, scrollTo() {} };
   globalThis.localStorage = { getItem: () => null, setItem() {} };
@@ -16,6 +16,11 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
     const click = async dataset => { events.get('click')({ target: { closest: () => ({ dataset }) } }); await Promise.resolve(); await Promise.resolve(); };
     const input = (path, value) => events.get('input')({ target: { dataset: { path }, value, type: 'text' } });
     await click({ nav: 'users' }); assert.match(node('#content').innerHTML, /accounts-table/);
+    const accessHtml = node('#content').innerHTML;
+    assert.ok(accessHtml.indexOf('SSH server policy') < accessHtml.indexOf('<h2>Accounts</h2>'));
+    assert.doesNotMatch(accessHtml, /Optional development|data-action="dev-preset"/);
+    assert.match(accessHtml, /<aside class="right-column">/);
+    assert.equal((accessHtml.match(/data-action="build-info"/g) || []).length, 1);
     await click({ action: 'add-account' }); input('draft.name', 'service1');
     await click({ action: 'close-dialog' }); assert.doesNotMatch(node('#content').innerHTML, /<strong>service1/);
     await click({ action: 'add-account' }); input('draft.name', 'service1'); await click({ action: 'save-account' });
@@ -40,6 +45,11 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
     await click({ action: 'close-dialog' });
     await click({ nav: 'storage' });
     assert.match(node('#content').innerHTML, /Image strategy/);
+    assert.match(node('#content').innerHTML, /<aside class="right-column">/);
+    assert.match(node('#content').innerHTML, /Recommended partitioning strategies/);
+    const storageHtml = node('#content').innerHTML;
+    assert.ok(storageHtml.indexOf('Image strategy') < storageHtml.indexOf('Target storage capacity'));
+    assert.ok(storageHtml.indexOf('Target storage capacity') < storageHtml.indexOf('<h2>Partitions'));
     input('updates.strategy', 'ab');
     await click({ nav: 'storage' });
     assert.match(node('#content').innerHTML, /BOOTCONFIG/);
@@ -66,16 +76,55 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
     globalThis.confirm = () => true;
     await click({ open: 'legacy-project' });
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(node('#project-title').textContent, 'simple-pi');
+    assert.equal(node('#sidebar-project').textContent, 'simple-pi');
+    assert.match(node('#toast').textContent, /Loaded "simple-pi"/);
+    assert.equal(node('#toast-container').hidden, false);
+    assert.equal(node('#toast-container').dataset.kind, 'success');
+    await click({ action: 'dismiss-toast' });
+    assert.equal(node('#toast-container').hidden, true);
+    events.get('keydown')({ ctrlKey: true, key: 's', preventDefault() {} });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(node('#toast').textContent, /Saved "simple-pi"/);
+    globalThis.fetch = async () => ({ ok: false, json: async () => ({ error: 'Export service unavailable.' }) });
+    await click({ action: 'preview' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(node('#toast').textContent, 'Export service unavailable.');
+    assert.equal(node('#toast-container').dataset.kind, 'error');
     assert.match(node('#content').innerHTML, /Image strategy/);
     await click({ nav: 'overview' });
     assert.match(node('#content').innerHTML, /value="simple-pi"/);
     await click({ nav: 'storage' });
-    await click({ action: 'add-partition' }); input('partition.label','DATA'); input('partition.mount','/data/app'); await click({ action: 'save-partition' });
+    await click({ action: 'add-partition' }); input('partition.label','DATA'); input('partition.mount','/simple-pi-data'); await click({ action: 'save-partition' });
     assert.match(node('#content').innerHTML, /<strong>data0/);
+    assert.match(node('#content').innerHTML, /\/simple-pi-data/);
     await click({ deletePartition: '0' }); await click({ action: 'close-dialog' });
     assert.match(node('#content').innerHTML, /<strong>data0/);
     await click({ deletePartition: '0' }); await click({ action: 'confirm-partition-delete' });
     assert.doesNotMatch(node('#content').innerHTML, /<strong>data0/);
+    for (const page of ['system','users','network','storage','gadget','hardware','software','services','advanced','export']) {
+      await click({ nav: page });
+      assert.equal((node('#content').innerHTML.match(/<aside class="right-column">/g) || []).length, 1, page);
+    }
+    await click({ nav: 'users' }); assert.match(node('#content').innerHTML, /Accounts & access/);
+    await click({ nav: 'export' }); assert.match(node('#content').innerHTML, /Review, export & build/);
+    assert.match(node('#content').innerHTML, /Preview files/);
+    assert.doesNotMatch(node('#content').innerHTML, /class="code-view"|Take it to WSL/);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ files: {
+      'config.yaml': { content:'device:\n  layer: rpi5\n' },
+      'build.sh': { content:'#!/bin/bash\n# </pre><script>unsafe</script>\n' }
+    } }) });
+    await click({ action:'preview' }); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(node('#dialog').open, true);
+    assert.match(node('#dialog-body').innerHTML, /file-preview/);
+    assert.match(node('#dialog-body').innerHTML, /preview-details/);
+    assert.match(node('#dialog-body').innerHTML, /Purpose/);
+    assert.match(node('#dialog-body').innerHTML, /Main rpi-image-gen build configuration/);
+    assert.match(node('#dialog-body').innerHTML, /Project &amp; build/);
+    assert.match(node('#dialog-body').innerHTML, /layer: rpi5/);
+    await click({ file:'build.sh' });
+    assert.match(node('#dialog-body').innerHTML, /#!\/bin\/bash/);
+    assert.match(node('#dialog-body').innerHTML, /&lt;script&gt;/);
+    assert.doesNotMatch(node('#dialog-body').innerHTML, /<script>/);
+    await click({ action:'close-dialog' }); assert.equal(node('#dialog').open, false);
   } finally { timers.forEach(clearTimeout); globalThis.setTimeout = originalTimeout; globalThis.fetch = originalFetch; delete globalThis.confirm; delete globalThis.document; delete globalThis.window; delete globalThis.localStorage; }
 });

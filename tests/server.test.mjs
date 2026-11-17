@@ -28,6 +28,14 @@ test('local API saves, reopens, detects conflicts, previews and exports', async 
   const preview = await (await call('/api/preview', 'POST', { config: p })).json(); assert.ok(preview.files['config.yaml']);
   const exported = await (await call(route + '/export', 'POST', { revision: 3 })).json();
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(exported.folder, 'project.json'), 'utf8')), p);
+  assert.match(path.basename(exported.folder), new RegExp(`^${p.project.slug}-[a-f0-9]{8}$`));
+  const repeated = await (await call(route + '/export', 'POST', { revision: 3 })).json();
+  assert.notEqual(repeated.folder, exported.folder);
+  // Previously exported timestamp URLs remain downloadable.
+  const legacyName = `${p.project.slug}-1794938977470-0f2207fa.tar.gz`;
+  await fs.copyFile(exported.folder + '.tar.gz', path.join(process.env.PICREATOR_EXPORTS, legacyName));
+  assert.equal((await call('/api/exports/' + legacyName)).status, 200);
+
   const modified = structuredClone(p); modified.project.name = 'Changed after export';
   assert.equal((await call(route, 'PUT', { config: modified, revision: 3 })).status, 200);
   const download = await call(exported.download); assert.equal(download.status, 200); assert.ok(gunzipSync(Buffer.from(await download.arrayBuffer())).includes(Buffer.from('config.yaml')));

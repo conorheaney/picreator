@@ -1,8 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults, normalizeProject, validate, dataCapacity, serviceDefaults, partitionRows } from '../public/model.js';
+import { defaults, normalizeProject, validate, dataCapacity, serviceDefaults, partitionRows, isDataMountPath } from '../public/model.js';
 import { generate } from '../lib/export.mjs';
 const base = () => { const p = defaults(); p.ssh.enabled = false; return p; };
+test('custom data mounts are supported without exposing system trees or overlapping filesystems', () => {
+  for (const mount of ['/simple-pi-data','/data','/data/app/logs','/srv/my-api','/opt/myapp/data']) assert.ok(isDataMountPath(mount), mount);
+  for (const mount of ['/','/etc','/etc/app','/usr/local','/boot/firmware','/var/lib','/proc','/dev','/run','/root','/home/pi','/persistent','/data/../etc','/data//app','/data/app/','relative','/data/a b','/data/$(id)']) assert.ok(!isDataMountPath(mount), mount);
+  const p = base(); p.storage.partitions = [{label:'SIMPLE-PI-DATA',size:'42G',mount:'/simple-pi-data'}];
+  assert.deepEqual(validate(p).errors, []);
+  assert.match(generate(p).files['layer/my-raspberry-pi-image.d/fstab'].content, /LABEL=SIMPLE-PI-DATA \/simple-pi-data ext4/);
+  p.storage.partitions.push({label:'MORE',size:'1G',mount:'/simple-pi-data/logs'});
+  assert.ok(validate(p).errors.some(e => e.message.includes('nested')));
+  p.storage.partitions[1].mount = '/simple-pi-data';
+  assert.ok(validate(p).errors.some(e => e.message.includes('unique')));
+});
+test('hyphenated uppercase data labels are valid; duplicates and unsafe labels are rejected', () => {
+  const p = base(); p.storage.partitions = [{ label:'SIMPLE-PI-DATA', size:'42G', mount:'/data/simple-pi' }];
+  assert.deepEqual(validate(p).errors, []);
+  const files = generate(p).files;
+  assert.match(files['layer/my-raspberry-pi-image.d/genimage.cfg.in'].content, /label = "SIMPLE-PI-DATA"/);
+  assert.match(files['layer/my-raspberry-pi-image.d/fstab'].content, /LABEL=SIMPLE-PI-DATA/);
+  p.storage.partitions.push({ ...p.storage.partitions[0], mount:'/data/another' });
+  assert.ok(validate(p).errors.some(e => e.message.startsWith('Data labels')));
+  p.storage.partitions.pop(); p.storage.partitions[0].label = 'UNSAFE"LABEL';
+  assert.ok(validate(p).errors.some(e => e.message.startsWith('Data labels')));
+});
 test('older projects default to standard and malformed strategy settings are rejected safely', () => {
   const p = base(); delete p.updates; delete p.sizing;
   assert.equal(normalizeProject(p).updates.strategy, 'standard');
@@ -27,9 +49,8 @@ test('A/B uses native layer and exports shared data declarations without custom 
   assert.equal(plan.partitions[3].size, plan.partitions[4].size);
   assert.doesNotMatch(config, /root_part_size|disksig|devid_scheme/);
   assert.ok(!f['scripts/prepare-layout.py']); assert.match(f['build.sh'].content, /--describe image-rota/);
-  const hook = f['layer/picreator-project.d/hooks/late/customize99-picreator'].content;
-  assert.ok(hook.includes('/etc/rpi-image-gen/slot-shared.d/picreator-apps.conf'));
-  assert.ok(hook.includes(Buffer.from('Version=1\nPath=/var/lib/myapp\n').toString('base64')));
+  const hook = f['layer/my-raspberry-pi-settings.d/hooks/late/customize99-my-raspberry-pi'].content;
+  assert.equal(f['layer/my-raspberry-pi-settings.d/customize.overlay/etc/rpi-image-gen/slot-shared.d/my-raspberry-pi-shared-data.conf'].content, 'Version=1\nPath=/var/lib/myapp\n');
   assert.match(f['UPDATE-STRATEGY.md'].content, /does not enable unattended updates/);
 });
 test('remaining capacity budgets decimal media capacity and both A/B slots', () => {
@@ -46,8 +67,8 @@ test('standard fills only final data partition and preserves source configuratio
   const p = base(); p.sizing.fillData = true;
   p.storage.partitions = [{ label: 'FIRST', size: '1G', mount: '/data/one' }, { label: 'DATA', size: '2G', mount: '/data/two' }];
   const size = dataCapacity(p), f = generate(p).files;
-  const layout = JSON.parse(f['scripts/layout.json'].content);
-  assert.equal(layout.partitions[0].size, '1G'); assert.equal(layout.partitions[1].size, size);
+  const layout = JSON.parse(f['partitions.json'].content);
+  assert.equal(layout.partitions[2].size, '1G'); assert.equal(layout.partitions[3].size, size);
   assert.equal(p.storage.partitions[1].size, '2G');
   assert.deepEqual(JSON.parse(f['project.json'].content), p);
   p.storage.rootSize = '300%'; assert.throws(() => generate(p));

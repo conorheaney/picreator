@@ -20,6 +20,11 @@ export function defaults() {
 export const serviceAccountDefaults = () => ({ name: 'myservice', groups: '' });
 export const serviceDefaults = () => ({ name: 'myapp', account: '', description: 'My application', executable: '/opt/myapp/bin/server', arguments: '', workingDirectory: '/opt/myapp', stateDirectory: 'myapp', runtimeDirectory: '', writablePaths: '', restart: 'on-failure', enabled: true, network: true });
 export const hardwareGroups = ['gpio', 'i2c', 'spi', 'dialout', 'video', 'render', 'audio'];
+export function isDataMountPath(value) {
+  if (typeof value !== 'string' || !/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(value)) return false;
+  const top = value.split('/')[1];
+  return !['bin','sbin','lib','lib32','lib64','libx32','usr','etc','boot','bootfs','persistent','dev','proc','sys','run','tmp','var','root','home','lost+found'].includes(top);
+}
 // Raspberry Pi image-rota: GPT, 8 MiB alignment, fixed order required by tryboot.
 export function partitionRows(p) {
   const ab = p.updates.strategy === 'ab';
@@ -108,7 +113,7 @@ export function validate(p) {
     if (!/^[1-9][0-9]*[MG]$/.test(p.updates.systemSize) || !/^[1-9][0-9]*[MG]$/.test(p.updates.dataSize)) e('storage', 'A/B system and data sizes must be absolute sizes such as 8G or 512M.');
     w('storage', 'A/B builds use an immutable root. Updates require a separately integrated deployment client, signed release delivery, health checks and tryboot confirmation; choosing this layout does not enable automatic updates.');
     if (p.storage.partitions.length) w('storage', 'Standard image data partitions are retained in the project but not used in A/B mode.');
-    if (p.services.some(s => s.writablePaths.trim())) e('services', 'For A/B images use service persistent data directories under /var/lib; extra writable paths under /data, /srv or /mnt are not supported.');
+    if (p.services.some(s => s.writablePaths.trim())) e('services', 'For A/B images use service persistent data directories under /var/lib; extra writable directories are not supported.');
     if (!p.updates.shareAppData && p.services.some(s => s.stateDirectory)) w('storage', 'Application state under /var/lib is slot-local. It may reset or differ after switching slots.');
     if (p.updates.shareAppData && p.services.some(s => s.stateDirectory)) w('storage', 'Shared application data survives slot changes. Database migrations must remain compatible with the previous release for rollback. Keep account UIDs/GIDs stable across releases.');
     for (const section of ['image']) {
@@ -153,7 +158,7 @@ export function validate(p) {
   const serviceNames = new Set(), ownedPaths = [];
   const absolute = value => /^\/[a-zA-Z0-9_./-]+$/.test(value) && !value.slice(1).split('/').some(x => x === '.' || x === '..' || x === '');
   for (const s of p.services) {
-    if (!/^[a-z][a-z0-9_-]{0,47}$/.test(s.name) || s.name.startsWith('picreator-') || ['ssh', 'sshd', 'systemd', 'dbus', 'getty', 'sudo', 'avahi-daemon'].includes(s.name)) e('services', 'Service names must be unique lowercase names without .service, and must not replace system services or use the picreator- prefix.');
+    if (!/^[a-z][a-z0-9_-]{0,47}$/.test(s.name) || s.name.startsWith(p.project.slug + '-prepare-') || s.name === p.project.slug + '-wifi-country' || ['ssh', 'sshd', 'systemd', 'dbus', 'getty', 'sudo', 'avahi-daemon'].includes(s.name)) e('services', 'Service names must be unique lowercase names without .service, and must not replace system services or conflict with project-generated helper services.');
     if (serviceNames.has(s.name)) e('services', 'Service names must be unique.');
     serviceNames.add(s.name);
     if (!accounts.has(s.account)) e('services', `${s.name}: select an existing restricted service account.`);
@@ -165,8 +170,9 @@ export function validate(p) {
       if (s[key] && !/^[a-z][a-z0-9_-]{0,47}$/.test(s[key])) e('services', `${s.name}: directory names must be lowercase names, not paths.`);
       if (s[key]) ownedPaths.push({ path: prefix + s[key], account: s.account });
     }
+    if (s.writablePaths.trim() && Math.max((p.project.slug + '-prepare-' + s.name + '.service').length, (p.project.slug + '-' + s.name + '-directories.conf').length) > 100) e('services', `${s.name}: shorten the service or project folder name so generated filenames fit within 100 characters.`);
     for (const path of lines(s.writablePaths)) {
-      if (!/^\/(data|srv|mnt)\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(path)) e('services', `${s.name}: extra writable directories must be beneath /data, /srv or /mnt without spaces or dot segments.`);
+      if (!isDataMountPath(path)) e('services', `${s.name}: extra writable directories must be absolute application data paths, without spaces, dot segments or protected system directories.`);
       ownedPaths.push({ path, account: s.account });
       if (p.storage.partitions.some(d => d.mount === path || path.startsWith(d.mount + '/'))) w('services', `${s.name}: writable data directories are created after mounted filesystems are available at boot.`);
     }
@@ -211,13 +217,14 @@ export function validate(p) {
   const labels = new Set(['BOOT', 'ROOT']), mounts = new Set();
   p.storage.partitions.forEach((d, i) => {
     if (!d || typeof d !== 'object') { e('storage', `Invalid partition ${i + 3}.`); return; }
-    if (!/^[A-Z][A-Z0-9_]{0,15}$/.test(d.label) || labels.has(d.label)) e('storage', 'Data labels must be unique uppercase names, up to 16 characters.');
+    if (!/^[A-Z][A-Z0-9_-]{0,15}$/.test(d.label) || labels.has(d.label)) e('storage', 'Data labels must be unique, start with an uppercase letter, and use at most 16 uppercase letters, numbers, underscores or hyphens.');
     labels.add(d.label);
     if (!/^[1-9][0-9]*[MG]$/.test(d.size)) e('storage', 'Data partitions need an absolute size such as 1G.');
-    if (!/^\/(?:data|srv|mnt)\/[a-zA-Z0-9_-]+$/.test(d.mount) || mounts.has(d.mount)) e('storage', 'Each data mount must be unique and beneath /data/, /srv/, or /mnt/.');
+    if (!isDataMountPath(d.mount)) e('storage', `Data mount "${d.mount}" must be an absolute application directory such as /simple-pi-data or /data/app. System directories, spaces and dot segments are not allowed.`);
+    if ([...mounts].some(path => path === d.mount || path.startsWith(d.mount + '/') || d.mount.startsWith(path + '/'))) e('storage', 'Data mount paths must be unique and must not be nested inside one another.');
     mounts.add(d.mount);
   });
-  if (p.storage.table === 'gpt' || p.storage.partitions.length) w('storage', 'Custom layouts adapt the installed image-rpios template. Provisioning metadata is disabled. Verify the layout and boot on a spare device before deployment.');
+  if (p.storage.table === 'gpt' || p.storage.partitions.length) w('storage', 'Custom layouts use an exported image layer and genimage template. Provisioning metadata is disabled. Verify layout and boot on a spare device before deployment.');
   } else if (!/^[1-9][0-9]*[MG]$/.test(p.storage.bootSize)) e('storage', 'A/B boot size must be an absolute size such as 512M.');
   if (words(p.software.packages).some(x => !/^[a-z0-9][a-z0-9+.-]*(?::arm64)?(?:=[a-zA-Z0-9.+:~_-]+)?$/.test(x))) e('software', 'Use Debian package names, optionally with =version, separated by spaces or lines.');
   for (const k of ['enableServices', 'disableServices']) if (words(p.software[k]).some(x => !/^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*\.(service|timer|socket)$/.test(x))) e('software', 'Service names must end in .service, .timer, or .socket.');

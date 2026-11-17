@@ -3,3 +3,22 @@ exports/
 .reference/
 node_modules/
 *.log
+
+# Desktop build outputs (sources and build script remain tracked)
+dist/.build/
+dist/desktop/bin/
+dist/desktop/obj/
+dist/*.exe
+dist/*.dll
+dist/*.pdb
+dist/smoke-result.json
+dist/smoke.png
+dist/NODE-LICENSE.txt
+dist/.picreator.lock
+dist/data/
+dist/exports/
+
+# WSL snapshots when the helper is run outside an ignored export folder
+rpi-builder.tar
+rpi-builder.tar.sha256
+.rpi-builder-*.tar
