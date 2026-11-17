@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Pi Creator — Image Workbench</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+  <header class="topbar"><a class="brand" href="/" aria-label="Pi Creator home"><span class="brand-icon">π</span><span>pi<span class="brand-light">creator</span><small>IMAGE WORKBENCH</small></span></a><div class="header-context"><span class="chip">LOCAL WORKSPACE</span><span id="project-title">New project</span></div><div class="actions"><button id="open-projects">Projects</button><button id="save">Save project</button><button class="primary" id="export-top">Export bundle <span>↗</span></button></div></header>
+  <div class="workspace"><aside class="sidebar"><div class="project-selector"><span class="eyebrow">YOUR PROJECT</span><strong id="sidebar-project">My Raspberry Pi</strong><span>Raspberry Pi 5 · ARM64</span></div><div class="nav-label">CONFIGURATION</div><nav id="nav" aria-label="Configuration sections"></nav><div class="sidebar-bottom"><span class="status-dot"></span> Runs entirely on your machine<p>Configure here. Build in WSL.</p><a href="https://raspberrypi.github.io/rpi-image-gen/" target="_blank" rel="noreferrer">rpi-image-gen documentation ↗</a></div></aside>
+  <main id="main"><div id="content"></div></main></div>
+  <footer><span><span class="status-dot"></span> Local editor <span class="footer-divider">|</span> Pi 5 / aarch64</span><span id="save-status" role="status">New project · not yet saved</span><span>Pi Creator <span class="version">v1.0</span></span></footer>
+  <div id="toast" role="status" hidden></div><dialog id="dialog" aria-label="Project settings"><div id="dialog-body"></div></dialog><input id="import-file" type="file" accept=".json,application/json" hidden>
+  <script type="module" src="/app.js"></script>
+</body></html>

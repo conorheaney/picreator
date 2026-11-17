@@ -1,0 +1,5 @@
+data/
+exports/
+.reference/
+node_modules/
+*.log

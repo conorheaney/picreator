@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { defaults, normalizeProject, validate, dataCapacity, serviceDefaults, partitionRows } from '../public/model.js';
+import { generate } from '../lib/export.mjs';
+const base = () => { const p = defaults(); p.ssh.enabled = false; return p; };
+test('older projects default to standard and malformed strategy settings are rejected safely', () => {
+  const p = base(); delete p.updates; delete p.sizing;
+  assert.equal(normalizeProject(p).updates.strategy, 'standard');
+  assert.equal(normalizeProject(p).sizing.fillData, false);
+  assert.ok(validate({ ...p, updates: null }).malformed);
+  assert.ok(validate({ ...p, updates: { ...defaults().updates, strategy: 'ab' }, services: [null] }).malformed);
+});
+test('A/B uses native layer and exports shared data declarations without custom partition adapter', () => {
+  const p = base(); p.updates.strategy = 'ab'; p.updates.bundle = 'otamaker';
+  p.serviceAccounts.push({ name: 'appsvc', groups: '' }); p.services.push({ ...serviceDefaults(), account: 'appsvc' });
+  const f = generate(p).files, config = f['config.yaml'].content;
+  assert.match(config, /layer: "image-rota"/); assert.match(config, /system_part_size: "8G"/);
+  assert.match(config, /data_part_size: "4G"/); assert.match(config, /updatefmt: "otamaker"/);
+  assert.match(config, /rootfs_type: "erofs"/);
+  const plan = JSON.parse(f['partitions.json'].content);
+  assert.equal(plan.table, 'gpt'); assert.equal(plan.alignment, '8M');
+  assert.deepEqual(plan.partitions.map(r => r.name), ['bootconfig','boot_a','boot_b','system_a','system_b','persistent']);
+  assert.deepEqual(plan.partitions.map(r => r.number), [1,2,3,4,5,6]);
+  assert.equal(plan.partitions[0].size, '32M');
+  assert.deepEqual(plan.partitions.map(r => r.filesystem), ['vfat','vfat','vfat','erofs','erofs','ext4']);
+  assert.equal(plan.partitions[1].size, plan.partitions[2].size);
+  assert.equal(plan.partitions[3].size, plan.partitions[4].size);
+  assert.doesNotMatch(config, /root_part_size|disksig|devid_scheme/);
+  assert.ok(!f['scripts/prepare-layout.py']); assert.match(f['build.sh'].content, /--describe image-rota/);
+  const hook = f['layer/picreator-project.d/hooks/late/customize99-picreator'].content;
+  assert.ok(hook.includes('/etc/rpi-image-gen/slot-shared.d/picreator-apps.conf'));
+  assert.ok(hook.includes(Buffer.from('Version=1\nPath=/var/lib/myapp\n').toString('base64')));
+  assert.match(f['UPDATE-STRATEGY.md'].content, /does not enable unattended updates/);
+});
+test('remaining capacity budgets decimal media capacity and both A/B slots', () => {
+  const p = base(); p.updates.strategy = 'ab'; p.sizing.fillData = true;
+  const expected = Math.floor(32e9 / 1048576) - 2 * 512 - 2 * 8192 - 64;
+  assert.equal(dataCapacity(p), expected + 'M');
+  const f = generate(p).files;
+  assert.match(f['config.yaml'].content, new RegExp(`data_part_size: "${expected}M"`));
+  assert.deepEqual(JSON.parse(f['project.json'].content), p);
+  assert.equal(partitionRows(p)[5].size, expected + 'M');
+  p.sizing.capacityGB = '8'; assert.throws(() => generate(p));
+});
+test('standard fills only final data partition and preserves source configuration', () => {
+  const p = base(); p.sizing.fillData = true;
+  p.storage.partitions = [{ label: 'FIRST', size: '1G', mount: '/data/one' }, { label: 'DATA', size: '2G', mount: '/data/two' }];
+  const size = dataCapacity(p), f = generate(p).files;
+  const layout = JSON.parse(f['scripts/layout.json'].content);
+  assert.equal(layout.partitions[0].size, '1G'); assert.equal(layout.partitions[1].size, size);
+  assert.equal(p.storage.partitions[1].size, '2G');
+  assert.deepEqual(JSON.parse(f['project.json'].content), p);
+  p.storage.rootSize = '300%'; assert.throws(() => generate(p));
+});
+test('A/B rejects incompatible writes and overrides; standard requires data to fill', () => {
+  const p = base(); p.sizing.fillData = true; assert.throws(() => generate(p));
+  p.updates.strategy = 'ab'; p.advanced.config = '{"image":{"layer":"image-rpios"}}'; assert.throws(() => generate(p));
+  p.advanced.config = '{}'; p.serviceAccounts.push({ name: 'appsvc', groups: '' });
+  p.services.push({ ...serviceDefaults(), account: 'appsvc', writablePaths: '/data/app' });
+  assert.ok(validate(p).errors.some(e => e.section === 'services'));
+});

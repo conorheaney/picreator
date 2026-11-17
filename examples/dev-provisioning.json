@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "Development and provisioning",
+    "slug": "dev-provisioning",
+    "description": "Root SSH with public key; one shared appsvc account for web apps, API and background services. Add your root public key before export.",
+    "version": "1.0.0"
+  },
+  "system": {
+    "hostname": "raspberrypi",
+    "suite": "trixie-minbase",
+    "storage": "sd",
+    "timezone": "Europe/Dublin",
+    "locale": "en_GB.UTF-8",
+    "keyboard": "gb",
+    "keyboardLabel": "English (UK)"
+  },
+  "users": [
+    {
+      "name": "pi",
+      "passwordHash": "",
+      "sudo": "none",
+      "groups": "adm,dialout,audio,video,plugdev,input,spi,i2c,gpio,render",
+      "uid": "",
+      "sshKeys": ""
+    }
+  ],
+  "serviceAccounts": [
+    {
+      "name": "appsvc",
+      "groups": ""
+    }
+  ],
+  "services": [],
+  "ssh": {
+    "enabled": true,
+    "keyOnly": true,
+    "port": 22,
+    "permitRoot": true,
+    "rootKeys": ""
+  },
+  "network": {
+    "ethernet": "auto",
+    "address": "",
+    "gateway": "",
+    "dns": "1.1.1.1,9.9.9.9",
+    "wifi": false,
+    "ssid": "",
+    "psk": "",
+    "country": "IE",
+    "hidden": false,
+    "mdns": true
+  },
+  "gadget": {
+    "enabled": false,
+    "mode": "shared",
+    "address": "10.55.0.1/24",
+    "deviceMac": "02:00:00:00:00:01",
+    "hostMac": "02:00:00:00:00:02"
+  },
+  "storage": {
+    "table": "mbr",
+    "bootSize": "512M",
+    "rootSize": "8G",
+    "rootFs": "ext4",
+    "diskSignature": "random",
+    "partitions": []
+  },
+  "hardware": {
+    "i2c": false,
+    "spi": false,
+    "uart": false,
+    "disableBluetooth": false,
+    "disableWifi": false,
+    "config": "",
+    "cmdline": ""
+  },
+  "software": {
+    "packages": "curl\ngit\nhtop",
+    "enableServices": "",
+    "disableServices": ""
+  },
+  "advanced": {
+    "layers": "",
+    "config": "{}",
+    "script": "",
+    "files": []
+  }
+}
