@@ -83,7 +83,7 @@ export function validate(p) {
   for (const key of ['project', 'system', 'ssh', 'network', 'gadget', 'storage', 'hardware', 'software', 'advanced']) {
     if (!p[key] || typeof p[key] !== 'object' || Array.isArray(p[key])) e('overview', `Missing or invalid ${key} settings.`);
   }
-  if (!Array.isArray(p.users) || !p.users.length) e('users', 'At least one user is required.');
+  if (!Array.isArray(p.users)) e('users', 'Login accounts must be a list.');
   if (errors.length) return { errors, warnings, malformed: true };
   // Validate the complete schema before interpreting imported settings.
   function shape(value, sample, path) {

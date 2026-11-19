@@ -4,6 +4,25 @@ import { defaults, developmentPreset, validate, serviceDefaults, normalizeProjec
 import { generate } from '../lib/export.mjs';
 
 const key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB developer';
+
+test('all human accounts may be deleted while root-only exports retain SSH access', () => {
+  const p = defaults(); p.users = [];
+  assert.equal(validate(p).malformed, undefined);
+  assert.ok(validate(p).errors.some(e => e.message.includes('no user can log in')));
+  assert.throws(() => generate(p), /Fix configuration/);
+  p.ssh.permitRoot = true; p.ssh.rootKeys = key;
+  assert.deepEqual(validate(p).errors, []);
+  const files = generate(p).files;
+  assert.match(files['config.yaml'].content, /user1: "root"/);
+  assert.match(files['config.yaml'].content, /user1groups: "root"/);
+  assert.match(files['config.yaml'].content, /user1sudo: "none"/);
+  assert.doesNotMatch(files['config.yaml'].content, /user1uid|user1pass|pubkey_user1/);
+  assert.equal(files['layer/my-raspberry-pi-settings.d/customize.overlay/root/.ssh/authorized_keys'].content, key + '\n');
+  assert.doesNotMatch(files['layer/my-raspberry-pi-settings.d/hooks/late/customize99-my-raspberry-pi'].content, /useradd/);
+  p.ssh.permitRoot = false; p.ssh.enabled = false;
+  assert.deepEqual(validate(p).errors, []);
+  assert.match(generate(p).files['config.yaml'].content, /user1: "root"/);
+});
 test('development preset requires root key and assigns all apps to a single restricted account', () => {
   const original = defaults(); original.services.push({ ...serviceDefaults(), account: 'old' });
   const p = developmentPreset(original);

@@ -16,6 +16,9 @@ test('networking, module configuration and target files export as static layer f
   assert.match(usb, /method=shared/); assert.match(usb, /address1=10.55.0.1\/24/);
   assert.equal(f[overlay + '/etc/modules-load.d/my-raspberry-pi-usb-gadget.conf'].content, 'dwc2\ng_ether\n');
   assert.equal(f[overlay + '/etc/modules-load.d/my-raspberry-pi-usb-gadget.conf'].mode, 0o644);
+  // The official Windows driver binds to this VID/PID; retain both configured MACs.
+  assert.equal(f[overlay + '/etc/modprobe.d/my-raspberry-pi-usb-gadget.conf'].content,
+    `options g_ether idVendor=0x2e8a idProduct=0x0013 dev_addr=${p.gadget.deviceMac} host_addr=${p.gadget.hostMac}\n`);
   assert.doesNotMatch(f['layer/my-raspberry-pi-settings.d/hooks/late/customize99-my-raspberry-pi'].content, /nmcli|base64|config.txt/);
 });
 test('default Standard layout delegates primary account settings and image geometry upstream', () => {

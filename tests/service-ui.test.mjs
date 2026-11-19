@@ -48,8 +48,10 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
     assert.match(node('#content').innerHTML, /<aside class="right-column">/);
     assert.match(node('#content').innerHTML, /Recommended partitioning strategies/);
     const storageHtml = node('#content').innerHTML;
-    assert.ok(storageHtml.indexOf('Image strategy') < storageHtml.indexOf('Target storage capacity'));
-    assert.ok(storageHtml.indexOf('Target storage capacity') < storageHtml.indexOf('<h2>Partitions'));
+    assert.match(storageHtml, /<h2>Image & capacity<\/h2>/);
+    assert.doesNotMatch(storageHtml, /<h2>Image strategy<\/h2>|<h2>Target storage capacity<\/h2>/);
+    assert.ok(storageHtml.indexOf('data-path="updates.strategy"') < storageHtml.indexOf('data-path="sizing.fillData"'));
+    assert.ok(storageHtml.indexOf('data-path="sizing.fillData"') < storageHtml.indexOf('<h2>Partitions'));
     input('updates.strategy', 'ab');
     await click({ nav: 'storage' });
     assert.match(node('#content').innerHTML, /BOOTCONFIG/);
@@ -126,5 +128,20 @@ test('guided UI adds accounts and services, propagates renames and blocks deleti
     assert.match(node('#dialog-body').innerHTML, /&lt;script&gt;/);
     assert.doesNotMatch(node('#dialog-body').innerHTML, /<script>/);
     await click({ action:'close-dialog' }); assert.equal(node('#dialog').open, false);
+    await click({ nav:'users' });
+    assert.match(node('#content').innerHTML, /data-delete-kind="users" data-index="0"/);
+    assert.doesNotMatch(node('#content').innerHTML, /data-delete-kind="root"/);
+    await click({ deleteKind:'users', index:'0' });
+    await click({ action:'close-dialog' });
+    assert.match(node('#content').innerHTML, /<strong>pi<\/strong>/);
+    await click({ deleteKind:'users', index:'0' });
+    await click({ action:'confirm-delete' });
+    assert.doesNotMatch(node('#content').innerHTML, /<strong>pi<\/strong>/);
+    assert.match(node('#content').innerHTML, /<strong>root<\/strong>/);
+    for (const page of ['overview','network','export']) await click({ nav:page });
+    await click({ nav:'users' });
+    await click({ action:'add-user' }); input('draft.name','operator');
+    await click({ action:'save-account' });
+    assert.match(node('#content').innerHTML, /<strong>operator<\/strong>/);
   } finally { timers.forEach(clearTimeout); globalThis.setTimeout = originalTimeout; globalThis.fetch = originalFetch; delete globalThis.confirm; delete globalThis.document; delete globalThis.window; delete globalThis.localStorage; }
 });
